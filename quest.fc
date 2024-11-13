@@ -1,0 +1,44 @@
+#pragma version =0.4.4;
+
+#include "imports/stdlib.fc";
+
+const int error::invalid_amount = 100; ;; Неверная сумма
+const int error::invalid_message = 101; ;; Неверный текст сообщения
+const int error::already_completed = 102; ;; Квест уже выполнен
+
+const int size::amount = 64; ;; Размер суммы (граммы)
+const int size::message_text = 128; ;; Размер текстового сообщения
+
+int donation_amount = 500000000; ;; 0.5 TON в нанотонах
+
+() recv_external(slice in_msg_body) impure inline {
+  ;; Загрузка отправленной суммы и текста
+  (slice cs, int amount) = in_msg_body.load_grams();
+  slice text = cs~load_bits(size::message_text);
+
+  ;; Проверка корректности суммы и текста
+  throw_unless(error::invalid_amount, amount == donation_amount);
+  throw_unless(error::invalid_message, text == "quest_donation");
+
+  ;; Получение адреса отправителя
+  (int sender_wc, int sender_hash) = parse_std_addr(cs~load_msg_addr());
+
+  ;; Загрузка текущего состояния
+  slice data_slice = get_data().begin_parse();
+  cell participants = data_slice~load_dict();
+
+  ;; Проверка, что пользователь уже не выполнил квест
+  (cell _, int already_completed) = participants.udict_get?(256, sender_hash);
+  throw_if(error::already_completed, already_completed);
+
+  ;; Обновление состояния — добавление нового участника
+  participants = participants.udict_set(256, sender_hash, begin_cell().store_uint(1, 1).end_cell());
+  set_data(begin_cell().store_dict(participants).end_cell());
+
+  ;; Принятие сообщения
+  accept_message();
+}
+
+() get_participants() method_id {
+  return get_data().begin_parse().preload_dict();
+}
